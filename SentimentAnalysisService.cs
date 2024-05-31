@@ -4,23 +4,28 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reactive.Subjects;
 
 public class SentimentAnalysisService
 {
     private readonly MLContext _mlContext;
     private readonly PredictionEngine<SentimentData, SentimentPrediction> _predictionEngine;
+    private readonly Subject<SentimentAnalysisResult> _sentimentSubject;
+
+    public IObservable<SentimentAnalysisResult> SentimentStream => _sentimentSubject;
 
     public SentimentAnalysisService()
     {
         _mlContext = new MLContext();
         var model = TrainModel();
         _predictionEngine = _mlContext.Model.CreatePredictionEngine<SentimentData, SentimentPrediction>(model);
+        _sentimentSubject = new Subject<SentimentAnalysisResult>();
     }
 
     private ITransformer TrainModel()
     {
-        string dir = System.IO.Directory.GetCurrentDirectory();
-        var data = _mlContext.Data.LoadFromTextFile<SentimentData>(dir + "\\DataSet.csv", separatorChar: ',', hasHeader: true);
+        string dir = Directory.GetCurrentDirectory();
+        var data = _mlContext.Data.LoadFromTextFile<SentimentData>(Path.Combine(dir, "DataSet.csv"), separatorChar: ',', hasHeader: true);
 
         var pipeline = _mlContext.Transforms.Text.FeaturizeText("Features", nameof(SentimentData.SentimentText))
             .Append(_mlContext.BinaryClassification.Trainers.SdcaLogisticRegression(labelColumnName: nameof(SentimentData.Sentiment), featureColumnName: "Features"));
@@ -28,28 +33,58 @@ public class SentimentAnalysisService
         return pipeline.Fit(data);
     }
 
-    public List<SentimentData> AnalyzeSentiment(List<string> comments)
+    public object AnalyzeSentiment(IList<string> comments)
     {
-        var sentimentDataList = comments.Select(comment =>
+        var sentimentDataList = new List<SentimentAnalysisResult>();
+
+        foreach (var comment in comments)
         {
             var prediction = _predictionEngine.Predict(new SentimentData { SentimentText = comment });
-            return new SentimentData { SentimentText = comment, Sentiment = prediction.Prediction, Score = prediction.Score };
-        }).ToList();
+            var sentimentResult = new SentimentAnalysisResult
+            {
+                SentimentText = comment,
+                Sentiment = prediction.Prediction,
+                Score = prediction.Score
+            };
+
+            sentimentDataList.Add(sentimentResult);
+            _sentimentSubject.OnNext(sentimentResult);
+        }
 
         var totalScore = sentimentDataList.Sum(data => data.Score);
         var averageScore = totalScore / sentimentDataList.Count;
 
-        // print each comment with its sentiment data
-        foreach (var data in sentimentDataList)
+        bool averageSentiment = averageScore > 0;
+
+        // sort the sentimentDataList based on Score
+        var sortedSentiments = sentimentDataList.OrderByDescending(data => data.Score);
+
+        // print the most positive and most negative comments
+        var mostPositiveComment = sortedSentiments.First();
+        var mostNegativeComment = sortedSentiments.Last();
+
+        var result = new
         {
-            Console.WriteLine($"Comment: {data.SentimentText}");
-            Console.WriteLine($"Sentiment: {data.Sentiment} - Score: {data.Score}");
-            Console.WriteLine();
-        }
+            Sentiments = sentimentDataList,
+            Summary = new
+            {
+                AverageSentiment = averageScore,
+                MostPositiveComment = new
+                {
+                    mostPositiveComment.SentimentText,
+                    mostPositiveComment.Sentiment,
+                    mostPositiveComment.Score
+                },
+                MostNegativeComment = new
+                {
+                    mostNegativeComment.SentimentText,
+                    mostNegativeComment.Sentiment,
+                    mostNegativeComment.Score
+                }
+            }
+        };
 
-        Console.WriteLine($"Average Sentiment: {averageScore}");
-
-        return sentimentDataList;
+        return result;
     }
 }
 
@@ -62,7 +97,7 @@ public class SentimentData
     public bool Sentiment { get; set; }
 
     [LoadColumn(2)]
-    public string SentimentText { get; set; }
+    public string? SentimentText { get; set; }
 
     [LoadColumn(3)]
     public float Score { get; set; }
@@ -72,5 +107,12 @@ public class SentimentPrediction
 {
     [ColumnName("PredictedLabel")]
     public bool Prediction { get; set; }
+    public float Score { get; set; }
+}
+
+public class SentimentAnalysisResult
+{
+    public string? SentimentText { get; set; }
+    public bool Sentiment { get; set; }
     public float Score { get; set; }
 }

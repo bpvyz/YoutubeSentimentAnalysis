@@ -1,8 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Net.Http;
-using System.Threading.Tasks;
+using System.Reactive.Linq;
 using Newtonsoft.Json.Linq;
+using System.Threading.Tasks;
 
 public class YouTubeCommentFetcher
 {
@@ -13,40 +14,43 @@ public class YouTubeCommentFetcher
         _apiKey = apiKey;
     }
 
-    public async Task<List<string>> GetVideoCommentsAsync(string videoId, int maxResults = 1000)
+    public IObservable<string?> GetVideoCommentsStream(string videoId, int maxResults = 1000)
     {
-        var comments = new List<string>();
-        using (var httpClient = new HttpClient())
+        return Observable.Create<string?>(async observer =>
         {
-            string nextPageToken = null;
-            while (comments.Count < maxResults)
+            using (var httpClient = new HttpClient())
             {
-                var url = $"https://www.googleapis.com/youtube/v3/commentThreads?part=snippet&videoId={videoId}&key={_apiKey}&maxResults=100";
-                if (nextPageToken != null)
+                string? nextPageToken = null;
+                while (true)
                 {
-                    url += $"&pageToken={nextPageToken}";
-                }
-
-                var response = await httpClient.GetStringAsync(url);
-                var jsonResponse = JObject.Parse(response);
-
-                foreach (var item in jsonResponse["items"])
-                {
-                    var comment = item["snippet"]["topLevelComment"]["snippet"]["textOriginal"].ToString();
-                    comments.Add(comment);
-                    if (comments.Count >= maxResults)
+                    var url = $"https://www.googleapis.com/youtube/v3/commentThreads?part=snippet&videoId={videoId}&key={_apiKey}&maxResults=100";
+                    if (nextPageToken != null)
                     {
-                        break;
+                        url += $"&pageToken={nextPageToken}";
+                    }
+
+                    var response = await httpClient.GetStringAsync(url);
+                    var jsonResponse = JObject.Parse(response);
+
+                    foreach (var item in jsonResponse["items"])
+                    {
+                        var comment = item["snippet"]["topLevelComment"]["snippet"]["textOriginal"].ToString();
+                        observer.OnNext(comment);
+                        if (--maxResults == 0)
+                        {
+                            observer.OnCompleted();
+                            return;
+                        }
+                    }
+
+                    nextPageToken = jsonResponse.Value<string?>("nextPageToken");
+                    if (nextPageToken == null)
+                    {
+                        observer.OnCompleted();
+                        return;
                     }
                 }
-
-                nextPageToken = jsonResponse.Value<string>("nextPageToken");
-                if (nextPageToken == null)
-                {
-                    break;
-                }
             }
-        }
-        return comments;
+        });
     }
 }

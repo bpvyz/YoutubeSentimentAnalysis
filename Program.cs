@@ -1,12 +1,10 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Net;
-using System.Text;
 using System.Reactive.Linq;
 using System.Reactive.Concurrency;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
+using System.Text;
 
 class Program
 {
@@ -61,25 +59,16 @@ class Program
             }
 
             Console.WriteLine($"Fetching comments for video ID: {videoId}");
-            var comments = await fetcher.GetVideoCommentsAsync(videoId, 1000); // Prikupljamo 1000 komentara
-            var sentiments = sentimentService.AnalyzeSentiment(comments);
-            var averageSentiment = sentiments.Sum(data => data.Score) / sentiments.Count;
+            var comments = await fetcher.GetVideoCommentsStream(videoId, 100).ToList();
+            var sentimentAnalysisResult = sentimentService.AnalyzeSentiment(comments);
 
-            // Pronalaženje najpozitivnijeg i najnegativnijeg komentara
-            var mostPositiveComment = sentiments.OrderByDescending(data => data.Score).FirstOrDefault();
-            var mostNegativeComment = sentiments.OrderBy(data => data.Score).FirstOrDefault();
+            // Serialize sentiment analysis result to JSON
+            var jsonResponse = JsonConvert.SerializeObject(sentimentAnalysisResult);
 
-            var responseString = JsonConvert.SerializeObject(new
-            {
-                Comments = sentiments,
-                AverageSentiment = averageSentiment,
-                MostPositiveComment = mostPositiveComment,
-                MostNegativeComment = mostNegativeComment
-            }, Formatting.Indented);
-
+            // Write JSON response to the client
             context.Response.StatusCode = (int)HttpStatusCode.OK;
-            await WriteResponseAsync(context.Response, responseString);
-            LogResponse(context.Response, true, null);
+            context.Response.ContentType = "application/json";
+            await WriteResponseAsync(context.Response, jsonResponse);
         }
         catch (Exception ex)
         {
@@ -88,6 +77,7 @@ class Program
             LogResponse(context.Response, false, ex);
         }
     }
+
 
     static async Task WriteResponseAsync(HttpListenerResponse response, string responseString)
     {
@@ -98,7 +88,7 @@ class Program
         responseOutput.Close();
     }
 
-    static void LogResponse(HttpListenerResponse response, bool success, Exception ex)
+    static void LogResponse(HttpListenerResponse response, bool success, Exception? ex)
     {
         if (success)
         {
