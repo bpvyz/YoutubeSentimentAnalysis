@@ -24,11 +24,20 @@ public class SentimentAnalysisService
 
     private ITransformer TrainModel()
     {
+        // load csv fajla sa podacima za treniranje
+
         string dir = Directory.GetCurrentDirectory();
         var data = _mlContext.Data.LoadFromTextFile<SentimentData>(Path.Combine(dir, "DataSet.csv"), separatorChar: ',', hasHeader: true);
 
+        // data processing pipeline koji:
+        // konvertuje 'SentimentText' u numerical features koriscenjem 'FeaturizeText'
+        // trenira logisticki regresioni model koriscenjem 'SdcaLogisticRegression' gde je label column 'Sentiment' a feature column 'Features'
+        // label column je onaj koji se prediktuje, dok je feature column onaj na osnovu kojeg se prediktuje
+
         var pipeline = _mlContext.Transforms.Text.FeaturizeText("Features", nameof(SentimentData.SentimentText))
             .Append(_mlContext.BinaryClassification.Trainers.SdcaLogisticRegression(labelColumnName: nameof(SentimentData.Sentiment), featureColumnName: "Features"));
+
+        // vraca istrenirani model ('ITransformer')
 
         return pipeline.Fit(data);
     }
@@ -39,7 +48,9 @@ public class SentimentAnalysisService
 
         foreach (var comment in comments)
         {
+            // predikcija svakog komentara i dodavanje sentimentResult-a u sentimentDataList
             var prediction = _predictionEngine.Predict(new SentimentData { SentimentText = comment });
+
             var sentimentResult = new SentimentAnalysisResult
             {
                 SentimentText = comment,
@@ -48,21 +59,25 @@ public class SentimentAnalysisService
             };
 
             sentimentDataList.Add(sentimentResult);
+            
+            // emit preko _sentimentSubject
             _sentimentSubject.OnNext(sentimentResult);
         }
 
+        // kalkulacije razlicitih score-ova
         var totalScore = sentimentDataList.Sum(data => data.Score);
         var averageScore = totalScore / sentimentDataList.Count;
 
         bool averageSentiment = averageScore > 0;
 
-        // sort the sentimentDataList based on Score
+        // sortiranje po Score
         var sortedSentiments = sentimentDataList.OrderByDescending(data => data.Score);
 
-        // print the most positive and most negative comments
+        // najpozitivniji, najnegativniji komentar
         var mostPositiveComment = sortedSentiments.First();
         var mostNegativeComment = sortedSentiments.Last();
-
+        
+        // summary sa svim rezultatima, prosekom, najpozitivnijim i najnegativnijim komentarom
         var result = new
         {
             Sentiments = sentimentDataList,
@@ -88,6 +103,10 @@ public class SentimentAnalysisService
     }
 }
 
+
+// data klase
+
+// struktura za treniranje modela
 public class SentimentData
 {
     [LoadColumn(0)]
@@ -103,6 +122,7 @@ public class SentimentData
     public float Score { get; set; }
 }
 
+// struktura prediction output-a modela
 public class SentimentPrediction
 {
     [ColumnName("PredictedLabel")]
@@ -110,6 +130,7 @@ public class SentimentPrediction
     public float Score { get; set; }
 }
 
+// struktura rezultata analize za jedan komentar
 public class SentimentAnalysisResult
 {
     public string? SentimentText { get; set; }

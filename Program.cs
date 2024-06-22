@@ -19,13 +19,16 @@ class Program
         listener.Start();
         Console.WriteLine("Listening...");
 
+        // observable za osluskivanje http request-a
         var requestStream = Observable.FromAsync(listener.GetContextAsync)
             .Repeat()
             .Publish()
             .RefCount();
 
+        // dedicated thread za handling
         var scheduler = new EventLoopScheduler();
 
+        // subscribe na requeststream, svaki http request se loguje i handle-uje
         requestStream
             .ObserveOn(scheduler)
             .Subscribe(async context =>
@@ -40,6 +43,7 @@ class Program
         listener.Stop();
     }
 
+    // logging
     static void LogRequest(HttpListenerRequest request)
     {
         Console.WriteLine($"Received request for {request.Url}");
@@ -62,10 +66,9 @@ class Program
             var comments = await fetcher.GetVideoCommentsStream(videoId, 100).ToList();
             var sentimentAnalysisResult = sentimentService.AnalyzeSentiment(comments);
 
-            // Serialize sentiment analysis result to JSON
+            // serijalizacija rezultata sentiment analize u json
             var jsonResponse = JsonConvert.SerializeObject(sentimentAnalysisResult);
 
-            // Write JSON response to the client
             context.Response.StatusCode = (int)HttpStatusCode.OK;
             context.Response.ContentType = "application/json";
             await WriteResponseAsync(context.Response, jsonResponse);
@@ -88,6 +91,7 @@ class Program
         responseOutput.Close();
     }
 
+    // logging statusa response-a
     static void LogResponse(HttpListenerResponse response, bool success, Exception? ex)
     {
         if (success)

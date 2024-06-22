@@ -14,6 +14,7 @@ public class YouTubeCommentFetcher
         _apiKey = apiKey;
     }
 
+    // observable sequence za fetch komentara
     public IObservable<string?> GetVideoCommentsStream(string videoId, int maxResults = 1000)
     {
         return Observable.Create<string?>(async observer =>
